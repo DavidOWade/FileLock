@@ -7,10 +7,10 @@ Command syntax:
   command [options] [arguments]
 
 Commands:
-  encrypt         Encrypts a file
-  decrypy         Decrypts a file
+&nbsp;&nbsp;encrypt         Encrypts a file
+&nbsp;&nbsp;decrypt         Decrypts a file
 
 Options
-  -i              Relative path to input file
-  -k              Relative path to keystore file
-  -o              Relative path to output file
+&nbsp;&nbsp;-i              Relative path to input file
+&nbsp;&nbsp;-k              Relative path to keystore file
+&nbsp;&nbsp;-o              Relative path to output file
