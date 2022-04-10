@@ -1,0 +1,267 @@
+#!/usr/bin/python3
+
+import sys
+import json
+import os
+
+from os.path import exists, splitext
+from datetime import date
+from cryptography.fernet import Fernet
+from colorama import init
+from termcolor import cprint, colored
+from pyfiglet import figlet_format
+
+init(strip=not sys.stdout.isatty())
+
+VERSION = "1.0"
+today = date.today()
+
+args = sys.argv
+
+COMMANDS = ["encrypt", "decrypt"]
+COMMAND_DESC = ["Encrypt a file", "Decrypt a file"]
+
+COMMAND_ALIAS = {
+	"e" : "encrypt",
+	"d" : "decrypt"
+}
+
+COMMAND_ARGS = {
+	"encrypt" : {
+		"requiredOptions" : [0],
+		"acceptedOptions" : [0, 1, 2]
+	},
+	"decrypt" : {
+		"requiredOptions" : [0, 1],
+		"acceptedOptions" : [0, 1, 2]
+	}
+}
+
+OPTIONS = ["i", "k", "o"]
+OPTION_DESC = ["Relative path of input file", "Encryption key file", "Relative path of output file"]
+
+OPTION_ARGS = {
+	"i" : 1,
+	"k" : 1
+}
+
+def parseCommand(args):
+	result = {
+		"success" : False,
+		"command" : '',
+		"options" : {}
+	}
+
+	if len(args) == 1:
+		showUsage()
+		return result
+
+	cmd = args[1]
+	
+	cmd = COMMAND_ALIAS[cmd] if cmd in COMMAND_ALIAS else cmd
+
+	result["command"] = cmd
+
+	if not cmd in COMMANDS:
+		print(f"{cmd} is not a command\n")
+		showUsage(['usage', 'commands', 'options'])
+		return False
+
+	optionPreceding = False
+	optionCount = 0
+	currentOption = ''
+
+	for arg in args[2:]:
+		if arg.startswith("-") and len(arg) > 1:
+			arg = arg[1:]
+			if not arg in OPTIONS:
+				print(f"{arg} is an invalid option")
+				showUsage(['usage', 'options'], cmd)
+				return result
+			optionValid = False
+			for idx in COMMAND_ARGS[cmd]["acceptedOptions"]:
+				optionValid = True if OPTIONS[idx] == arg else False
+				if optionValid:
+					break
+			if not optionValid:
+				print(f"{arg} is an invalid option for this command")
+				showUsage(['usage', 'options'], cmd)
+				return result
+			optionPreceding = True
+			optionCount += 1
+			currentOption = arg
+			result["options"][arg] = []
+		else:
+			if not optionPreceding:
+				print(f"{arg} is an invalid option for this command")
+				showUsage(['usage', 'options'], cmd)
+				return result
+			result["options"][currentOption].append(arg)
+			optionPreceding = False
+			currentOption = ''
+
+	if optionCount < len(COMMAND_ARGS[cmd]["requiredOptions"]):
+		print('Too few arguments\n')
+		showUsage(['usage', 'options'], cmd)
+		return result
+
+	if optionCount > len(COMMAND_ARGS[cmd]["acceptedOptions"]):
+		print('Too many arguments')
+		showUsage(['usage', 'options'], cmd)
+		return result
+
+	optionRequirements = [False for i in range(len(COMMAND_ARGS[cmd]["requiredOptions"]))]
+	for i in COMMAND_ARGS[cmd]["requiredOptions"]:
+		optionRequirements[i] = True if OPTIONS[i] in result["options"] else False
+
+	if not all(optionRequirements):
+		print('These options are required')
+		showUsage('options', cmd, True)
+		return result
+	
+	result["success"] = True
+	return result
+
+def executeCommand(parsedCommand):
+	cmd = parsedCommand["command"]
+	options = parsedCommand["options"]
+	if cmd == "encrypt":
+		encrypt(options)
+	if cmd == "decrypt":
+		decrypt(options)
+
+def decrypt(options):
+	file_plaintext = ''
+	key_file = options["k"][0]
+	file_encrypted = options["i"][0]
+
+	if not exists(key_file):
+		print('Keystore file not found')
+		return False;
+	else:
+		print('Keystore file found')
+
+	if not exists(file_encrypted):
+		print('Encrypted file not found')
+		return False
+	else:
+		print('Encrypted file found')
+
+	if "o" in options:
+		file_plaintext = options["o"][0]
+	else:
+		if file_encrypted.endswith("_enc"):
+			file_plaintext = file_encrypted.split("_enc")[0]
+		else:
+			file_plaintext = file_encrypted + "_dec"
+
+	with open(key_file, 'rb') as file:
+		key = file.read()
+
+	with open(file_encrypted, 'rb') as file:
+		encrypted = file.read()
+
+	fernet = Fernet(key)
+
+	decrypted = fernet.decrypt(encrypted)
+
+	print()
+	print(f"{colored('Decrypting file into ', 'green')}{file_plaintext}")
+
+	with open(file_plaintext, 'wb') as file:
+		file.write(decrypted)
+
+
+	os.remove(file_encrypted)
+	return True
+
+
+
+
+
+
+
+def encrypt(options):
+	file_plaintext = options["i"][0]
+	key = ''
+	file_encrypted = ''
+
+	if not exists(file_plaintext):
+		print(f"{'File does not exist: '}{file_plaintext}")
+		return False
+
+	if "k" in options:
+		if exists(options["k"][0]):
+			with open(options["k"][0], 'rb') as filekey:
+				key = filekey.read()
+			print('Keystore file found')
+		else:
+			print(f"{'Key file does not exist: '}{options['k'][0]}")
+			return False
+	else:
+		key = Fernet.generate_key()
+		with open('keystore.key', 'wb') as keystore:
+			keystore.write(key)
+		print('Generating key into keystore.key...')
+		print(f"{key.hex():<3}")
+
+	if "o" in options:
+		file_encrypted = options["o"][0]
+	else:
+		file_encrypted = splitext(file_plaintext + "_enc")[0]
+	
+	with open(file_plaintext, 'rb') as file:
+		plaintext = file.read()
+
+	fernet = Fernet(key)
+
+	encrypted = fernet.encrypt(plaintext)
+
+	with open(file_encrypted, 'wb') as file:
+		file.write(encrypted)
+
+	os.remove(file_plaintext)
+
+	print()
+	print(f"{colored('Encrypted file ', 'green')}{file_encrypted}")
+
+	return True
+
+
+def showUsage(options=[], cmd=None, required=False):
+	if 'welcome' in options or len(options) == 0:
+		cprint(figlet_format('FileLock', font='starwars'), 'cyan', attrs=['bold'])
+
+	if 'version' in options or len(options) == 0:
+		print(f'FileLock version {VERSION} {today.strftime("%B %d, %Y")}\n')
+
+	if 'usage' in options or len(options) == 0:
+		print(colored('Usage:', 'yellow'))
+		print (f"{'':<3}{cmd if not cmd == None else 'command'}{' [option] [arguments]'}\n")
+
+	if 'commands' in options or len(options) == 0:
+		print(colored('Commands:', 'yellow'))
+		for i in range(len(COMMANDS)):
+			print(f"{'':<3}{colored(COMMANDS[i], 'green'):<30}{COMMAND_DESC[i]}")
+
+	if 'options' in options or len(options) == 0:
+		if cmd == None:
+			print(colored('\nOptions:', 'yellow'))
+			for i in range(len(OPTIONS)):
+				print(f"{'':<3}{colored('-' + OPTIONS[i], 'green'):<30}{OPTION_DESC[i]}")
+		elif not cmd == None and not required:
+			print(colored('Allowed options:', 'yellow'))
+			for i in COMMAND_ARGS[cmd]["acceptedOptions"]:
+				print(f"{'':<3}{colored('-' + OPTIONS[i], 'green'):<30}{OPTION_DESC[i]}")
+		else:
+			print(colored('Required options:', 'yellow'))
+			for i in COMMAND_ARGS[cmd]["requiredOptions"]:
+				print(f"{'':<3}{colored('-' + OPTIONS[i], 'green'):<30}{OPTION_DESC[i]}")
+		print()
+
+
+	
+
+parsedCommand = parseCommand(args)
+if parsedCommand["success"]:
+	executeCommand(parsedCommand)
